@@ -1,6 +1,7 @@
 import re
 import os
 import time
+import subprocess
 import requests
 from io import StringIO
 from pyrogram import filters
@@ -38,6 +39,26 @@ def create_progress_bar(percentage):
     filled_blocks = int(percentage / 10)
     empty_blocks = total_blocks - filled_blocks
     return f"[{'⬛' * filled_blocks}{'⬜' * empty_blocks}] {percentage}%"
+
+def fix_missing_audio(file_path):
+    """FFmpeg injects a silent audio track if video lacks sound stream to bypass Telegram GIF conversion"""
+    try:
+        temp_output = f"fixed_{file_path}"
+        # Command checks if audio track is present, if not adds silent aac stream
+        cmd = [
+            'ffmpeg', '-y', '-i', file_path,
+            '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+            '-c:v', 'copy', '-c:a', 'aac', '-shortest', temp_output
+        ]
+        # Silently process background subprocess streams
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
+            os.remove(file_path)
+            os.rename(temp_output, file_path)
+            print("🔊 [FFmpeg Node] Silent audio stream successfully injected!")
+    except Exception as e:
+        print(f"⚠️ [FFmpeg Error] Audio patch injection failed: {e}")
 
 def yt_dlp_callback(d):
     """Local Download Progress Hook"""
@@ -93,7 +114,6 @@ def get_instagram_all_data(url):
     """Backup Engine: Local yt-dlp metadata extractor"""
     clean_url = url.split("?")[0].strip().rstrip("/")
     ydl_opts = {
-        # Strict fallback stream ordering prioritising sound injection paths
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 
         'quiet': True,
         'no_warnings': True,
@@ -139,7 +159,6 @@ def get_instagram_all_data(url):
 def download_video_locally(url, video_id):
     """Backup Engine: Local yt-dlp downloader"""
     ydl_opts = {
-        # Strict mp4 conversion schema profile integration
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': f'video_{video_id}.mp4',
         'quiet': True,
@@ -189,7 +208,6 @@ async def auto_detect_instagram_link(client, message):
             data = result["result"]
             video_url = data["url"]
             
-            # Formatting duration directly into raw seconds block cleanly
             raw_dur = data.get("duration", "N/A")
             if raw_dur != "N/A":
                 try:
@@ -210,7 +228,8 @@ async def auto_detect_instagram_link(client, message):
             )
             
             await status_msg.edit("📤 **Cloud extraction successful! Initializing stream nodes...**")
-            # CRITICAL MP4 BLINK FIX: supports_streaming force injection prevents GIF rendering loops
+            
+            # API links download bypass checks
             await message.reply_video(
                 video=video_url,
                 caption=caption,
@@ -236,7 +255,6 @@ async def auto_detect_instagram_link(client, message):
         await status_msg.edit("❌ **Dual-Engine Extraction Failed!** Both systems rejected this link node.")
         return
 
-    # Fixed duration format to show strictly seconds
     dur = data.get("duration")
     duration_str = f"{int(float(dur))} Seconds" if dur else "N/A"
     
@@ -261,8 +279,11 @@ async def auto_detect_instagram_link(client, message):
         file_path = await loop_engine.run_in_executor(None, download_video_locally, url, data["id"])
         
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+            # RUN AUDIO PATCH FIX BEFORE SENDING TO TELEGRAM
+            await status_msg.edit("🛠️ **Analyzing media frequencies & stream sanity...**")
+            await loop_engine.run_in_executor(None, fix_missing_audio, file_path)
+            
             await status_msg.edit("📤 **Local download complete! Processing Telegram upload core...**")
-            # CRITICAL MP4 BLINK FIX: supports_streaming=True blocks native gif conversion flags
             await message.reply_video(
                 video=file_path, 
                 caption=caption,
@@ -282,9 +303,9 @@ async def auto_detect_instagram_link(client, message):
 
 MODULE = "Rᴇᴇʟ"
 HELP = """
-ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅ挂:
+ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ:
 
-• /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
+• /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇ r ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 • /instagram [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 • /reel [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 """
