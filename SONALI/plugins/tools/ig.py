@@ -1,6 +1,7 @@
 import re
 import os
 import time
+import json
 import subprocess
 import requests
 from io import StringIO
@@ -41,24 +42,38 @@ def create_progress_bar(percentage):
     return f"[{'⬛' * filled_blocks}{'⬜' * empty_blocks}] {percentage}%"
 
 def fix_missing_audio(file_path):
-    """FFmpeg injects a silent audio track if video lacks sound stream to bypass Telegram GIF conversion"""
+    """Checks if audio track exists. If missing, injects a silent track to bypass Telegram GIF conversion."""
     try:
+        # Check if the file has an audio stream using ffprobe
+        probe_cmd = [
+            'ffprobe', '-v', 'error', '-select_streams', 'a', 
+            '-show_entries', 'stream=codec_name', '-of', 'json', file_path
+        ]
+        result = subprocess.run(probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        probe_data = json.loads(result.stdout)
+        
+        # If audio stream is present, do nothing and return safely
+        if probe_data.get('streams'):
+            print("🔊 [Audio Analyzer] Sound track detected! Keeping original audio.")
+            return
+
+        print("🔇 [Audio Analyzer] No sound stream found. Injecting bypass silent layer...")
         temp_output = f"fixed_{file_path}"
-        # Command checks if audio track is present, if not adds silent aac stream
+        
+        # ONLY inject silent audio if the original video has ZERO audio streams
         cmd = [
             'ffmpeg', '-y', '-i', file_path,
             '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
             '-c:v', 'copy', '-c:a', 'aac', '-shortest', temp_output
         ]
-        # Silently process background subprocess streams
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         
         if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
             os.remove(file_path)
             os.rename(temp_output, file_path)
-            print("🔊 [FFmpeg Node] Silent audio stream successfully injected!")
+            print("⚙️ [FFmpeg Engine] Silent patch successfully merged!")
     except Exception as e:
-        print(f"⚠️ [FFmpeg Error] Audio patch injection failed: {e}")
+        print(f"⚠️ [FFmpeg Error] Diagnostic check or patch execution failed: {e}")
 
 def yt_dlp_callback(d):
     """Local Download Progress Hook"""
@@ -229,7 +244,6 @@ async def auto_detect_instagram_link(client, message):
             
             await status_msg.edit("📤 **Cloud extraction successful! Initializing stream nodes...**")
             
-            # API links download bypass checks
             await message.reply_video(
                 video=video_url,
                 caption=caption,
@@ -279,7 +293,7 @@ async def auto_detect_instagram_link(client, message):
         file_path = await loop_engine.run_in_executor(None, download_video_locally, url, data["id"])
         
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-            # RUN AUDIO PATCH FIX BEFORE SENDING TO TELEGRAM
+            # SMART DIAGNOSTIC PATTERNS
             await status_msg.edit("🛠️ **Analyzing media frequencies & stream sanity...**")
             await loop_engine.run_in_executor(None, fix_missing_audio, file_path)
             
@@ -305,7 +319,7 @@ MODULE = "Rᴇᴇʟ"
 HELP = """
 ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ:
 
-• /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇ r ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
+• /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 • /instagram [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 • /reel [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 """
