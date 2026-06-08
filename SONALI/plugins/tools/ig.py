@@ -93,7 +93,7 @@ def get_instagram_all_data(url):
     """Backup Engine: Local yt-dlp metadata extractor"""
     clean_url = url.split("?")[0].strip().rstrip("/")
     ydl_opts = {
-        # Forced strictly to standard mp4 containers to prevent GIF generation
+        # Strict fallback stream ordering prioritising sound injection paths
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 
         'quiet': True,
         'no_warnings': True,
@@ -139,7 +139,7 @@ def get_instagram_all_data(url):
 def download_video_locally(url, video_id):
     """Backup Engine: Local yt-dlp downloader"""
     ydl_opts = {
-        # Strictly merge and force mp4 block streams to clear up GIF flags
+        # Strict mp4 conversion schema profile integration
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': f'video_{video_id}.mp4',
         'quiet': True,
@@ -162,7 +162,7 @@ async def auto_detect_instagram_link(client, message):
     if message.command and len(message.command) >= 2:
         url = message.text.split()[1]
     elif message.command and len(message.command) < 2:
-        await message.reply_text("Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇ r ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ")
+        await message.reply_text("Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ")
         return
     else:
         match = re.search(r'(https?://[^\s]+)', message.text)
@@ -189,7 +189,7 @@ async def auto_detect_instagram_link(client, message):
             data = result["result"]
             video_url = data["url"]
             
-            # Formatting Cloud API duration output cleanly into raw seconds
+            # Formatting duration directly into raw seconds block cleanly
             raw_dur = data.get("duration", "N/A")
             if raw_dur != "N/A":
                 try:
@@ -210,9 +210,11 @@ async def auto_detect_instagram_link(client, message):
             )
             
             await status_msg.edit("📤 **Cloud extraction successful! Initializing stream nodes...**")
+            # CRITICAL MP4 BLINK FIX: supports_streaming force injection prevents GIF rendering loops
             await message.reply_video(
                 video=video_url,
                 caption=caption,
+                supports_streaming=True,
                 progress=pyrogram_upload_callback,
                 progress_args=(status_msg,)
             )
@@ -234,7 +236,7 @@ async def auto_detect_instagram_link(client, message):
         await status_msg.edit("❌ **Dual-Engine Extraction Failed!** Both systems rejected this link node.")
         return
 
-    # Fixed local duration format to strictly show seconds
+    # Fixed duration format to show strictly seconds
     dur = data.get("duration")
     duration_str = f"{int(float(dur))} Seconds" if dur else "N/A"
     
@@ -260,9 +262,11 @@ async def auto_detect_instagram_link(client, message):
         
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             await status_msg.edit("📤 **Local download complete! Processing Telegram upload core...**")
+            # CRITICAL MP4 BLINK FIX: supports_streaming=True blocks native gif conversion flags
             await message.reply_video(
                 video=file_path, 
                 caption=caption,
+                supports_streaming=True,
                 progress=pyrogram_upload_callback,
                 progress_args=(status_msg,)
             )
@@ -278,7 +282,7 @@ async def auto_detect_instagram_link(client, message):
 
 MODULE = "Rᴇᴇʟ"
 HELP = """
-ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ:
+ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅ挂:
 
 • /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 • /instagram [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
