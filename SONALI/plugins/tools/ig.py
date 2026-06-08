@@ -1,17 +1,22 @@
-
 import re
 import os
+import sys
+import asyncio
 import time
-import requests
 from io import StringIO
-from pyrogram import filters
+from pyrogram import Client, filters
 from yt_dlp import YoutubeDL
 
-# Main bot app ko SONALI se import kar rahe hain aur fallback loop ke liye asyncio
-from SONALI import app
-import asyncio
+# Auto-update layer dependencies
+os.system(f"{sys.executable} -m pip install --upgrade yt-dlp")
 
-# Regex matching commands and plain links
+# Tumhare credentials
+API_ID = 27479878
+API_HASH = "05f8dc8265d4c5df6376dded1d71c0ff"
+BOT_TOKEN = "8787555317:AAE1ezlBX--kAVPRGHPeQ2XV99Jvg8dhkXw"
+
+app = Client("pydroid_test_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
 INSTAGRAM_REGEX = r".*(instagram\.com|instagr\.am)/(p|reel|tv|share)/[^\s]+"
 
 # Global reference variables tracking ke liye
@@ -20,7 +25,7 @@ last_edit_time = 0
 loop_engine = None
 
 # ==========================================================
-# 🍪 COOKIES TEXT AREA (Used for Backup Local Engine)
+# COOKIES TEXT AREA
 # ==========================================================
 COOKIES_DATA = """
 # Netscape HTTP Cookie File
@@ -38,6 +43,7 @@ def create_progress_bar(percentage):
     total_blocks = 10
     filled_blocks = int(percentage / 10)
     empty_blocks = total_blocks - filled_blocks
+    # SONALI STYLE: Premium square blocks used cleanly here
     return f"[{'⬛' * filled_blocks}{'⬜' * empty_blocks}] {percentage}%"
 
 def yt_dlp_callback(d):
@@ -90,7 +96,7 @@ async def pyrogram_upload_callback(current, total, status_msg):
 
 def get_instagram_all_data(url):
     clean_url = url.split("?")[0].strip().rstrip("/")
-    # SOUND FIX: Tumhare code wala exact format use kiya gaya hai
+    # Yeh format bilkul tumhari script wala hai (Sound 100% aayega)
     ydl_opts = {
         'format': 'best[ext=mp4]/best', 
         'quiet': True,
@@ -118,8 +124,6 @@ def get_instagram_all_data(url):
                 "title": real_caption.strip(),
                 "uploader": info.get('uploader', 'Unknown_User'),
                 "duration": info.get('duration'),
-                "width": info.get('width'),      # Required for GIF bypass
-                "height": info.get('height'),    # Required for GIF bypass
                 "view_count": info.get('view_count', 'N/A'),
                 "like_count": info.get('like_count', 'N/A'),
                 "id": info.get('id') or str(int(time.time())),
@@ -137,10 +141,13 @@ def get_instagram_all_data(url):
             return metadata
         except Exception as e:
             print(f"Metadata Restricted Block: {e}")
-            return None
+            return {
+                "video_url": None, "title": "Restricted / Age-Gated Content", "uploader": "Restricted_Audience",
+                "duration": None, "view_count": "N/A", "like_count": "N/A", "id": str(int(time.time())),
+                "comments": ["💬 System: Top comments hidden for restricted links."]
+            }
 
 def download_video_locally(url, video_id):
-    # SOUND FIX: Tumhare code wala exact format use kiya gaya hai
     ydl_opts = {
         'format': 'best[ext=mp4]/best',
         'outtmpl': f'video_{video_id}.mp4',
@@ -156,20 +163,14 @@ def download_video_locally(url, video_id):
         ydl.download([url])
     return f'video_{video_id}.mp4'
 
-@app.on_message((filters.text & filters.regex(INSTAGRAM_REGEX)) | filters.command(["ig", "instagram", "reel"]))
+@app.on_message(filters.text & filters.regex(INSTAGRAM_REGEX))
 async def auto_detect_instagram_link(client, message):
     global current_status_msg, last_edit_time, loop_engine
     
-    if message.command and len(message.command) >= 2:
-        url = message.text.split()[1]
-    elif message.command and len(message.command) < 2:
-        await message.reply_text("Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ")
-        return
-    else:
-        match = re.search(r'(https?://[^\s]+)', message.text)
-        if not match: return
-        url = match.group(1)
-
+    match = re.search(r'(https?://[^\s]+)', message.text)
+    if not match: return
+        
+    url = match.group(1)
     status_msg = await message.reply_text("⚡ **Link detected!** Querying server data...")
 
     loop_engine = asyncio.get_event_loop()
@@ -178,18 +179,9 @@ async def auto_detect_instagram_link(client, message):
 
     data = await loop_engine.run_in_executor(None, get_instagram_all_data, url)
 
-    if not data or not data.get("video_url"):
-        await status_msg.edit("❌ **Extraction Failed!** Invalid link or age-restricted content.")
-        return
-
-    # DURATION FIX: Humesha strictly Seconds me dikhega
+    # SECONDS FORMAT FIX YAHAN HAI
     dur = data.get("duration")
-    v_duration = int(float(dur)) if dur else 0
-    duration_str = f"{v_duration} Seconds" if dur else "N/A"
-    
-    # GIF FIX PARAMETERS
-    v_width = data.get("width") or 720
-    v_height = data.get("height") or 1280
+    duration_str = f"{int(float(dur))} Seconds" if dur else "N/A"
     
     likes = data.get("like_count", "N/A")
     likes_str = f"{likes:,}" if isinstance(likes, int) else str(likes)
@@ -215,14 +207,11 @@ async def auto_detect_instagram_link(client, message):
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             await status_msg.edit("📤 **Download complete! Initializing Telegram upload channel...**")
             
-            # THE MAGIC HAPPENS HERE: sound wali video mein GIF block limits pass ho rahi hain
+            # SUPPORTS STREAMING FIX YAHAN HAI
             await message.reply_video(
                 video=file_path, 
                 caption=caption,
-                duration=v_duration,
-                width=v_width,
-                height=v_height,
-                supports_streaming=True,
+                supports_streaming=True,  # Telegram ko MP4 player format me chalane ke liye
                 progress=pyrogram_upload_callback,
                 progress_args=(status_msg,)
             )
@@ -230,17 +219,15 @@ async def auto_detect_instagram_link(client, message):
             await status_msg.delete()
             os.remove(file_path)
         else:
-            await status_msg.edit("❌ **Extraction Failed!** Processing nodes returned empty caches.")
+            await status_msg.edit("❌ **Extraction Failed!** Invalid or expired cookies parse setup.")
             if os.path.exists(file_path): os.remove(file_path)
             
     except Exception as e:
         await status_msg.edit(f"❌ Pipeline broke down during workflow.\nError: {e}")
 
-MODULE = "Rᴇᴇʟ"
-HELP = """
-ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ:
-
-• /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs.
-• /instagram [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs.
-• /reel [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs.
-"""
+if __name__ == "__main__":
+    print("========================================")
+    print("🚀 SONALI STYLE PROGRESS BOT IS LIVE!   🚀")
+    print("========================================")
+    app.run()
+    
