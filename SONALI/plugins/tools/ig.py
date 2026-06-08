@@ -93,7 +93,8 @@ def get_instagram_all_data(url):
     """Backup Engine: Local yt-dlp metadata extractor"""
     clean_url = url.split("?")[0].strip().rstrip("/")
     ydl_opts = {
-        'format': 'best[ext=mp4]/best', 
+        # Forced strictly to standard mp4 containers to prevent GIF generation
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 
         'quiet': True,
         'no_warnings': True,
         'get_comments': True,
@@ -138,7 +139,8 @@ def get_instagram_all_data(url):
 def download_video_locally(url, video_id):
     """Backup Engine: Local yt-dlp downloader"""
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        # Strictly merge and force mp4 block streams to clear up GIF flags
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': f'video_{video_id}.mp4',
         'quiet': True,
         'no_warnings': True,
@@ -157,11 +159,10 @@ def download_video_locally(url, video_id):
 async def auto_detect_instagram_link(client, message):
     global current_status_msg, last_edit_time, loop_engine
     
-    # URL extract handle chahe text link ho ya command input
     if message.command and len(message.command) >= 2:
         url = message.text.split()[1]
     elif message.command and len(message.command) < 2:
-        await message.reply_text("Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ")
+        await message.reply_text("Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇ r ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ")
         return
     else:
         match = re.search(r'(https?://[^\s]+)', message.text)
@@ -187,13 +188,23 @@ async def auto_detect_instagram_link(client, message):
         if not result.get("error", True):
             data = result["result"]
             video_url = data["url"]
-            duration = data.get("duration", "N/A")
+            
+            # Formatting Cloud API duration output cleanly into raw seconds
+            raw_dur = data.get("duration", "N/A")
+            if raw_dur != "N/A":
+                try:
+                    duration_str = f"{int(float(raw_dur))} Seconds"
+                except Exception:
+                    duration_str = f"{raw_dur} Seconds"
+            else:
+                duration_str = "N/A"
+                
             quality = data.get("quality", "N/A")
             size = data.get("formattedSize", "N/A")
             
             caption = (
                 f"⚡ **Instagram Reel Downloaded (Cloud API)** ⚡\n\n"
-                f"⏰ **Duration :** {duration}\n"
+                f"⏰ **Duration :** {duration_str}\n"
                 f"🎬 **Quality :** {quality}\n"
                 f"📦 **Size :** {size}\n"
             )
@@ -223,8 +234,9 @@ async def auto_detect_instagram_link(client, message):
         await status_msg.edit("❌ **Dual-Engine Extraction Failed!** Both systems rejected this link node.")
         return
 
+    # Fixed local duration format to strictly show seconds
     dur = data.get("duration")
-    duration_str = f"{int(float(dur)) // 60}:{int(float(dur)) % 60:02d} Mins" if dur else "N/A"
+    duration_str = f"{int(float(dur))} Seconds" if dur else "N/A"
     
     likes = data.get("like_count", "N/A")
     likes_str = f"{likes:,}" if isinstance(likes, int) else str(likes)
@@ -270,5 +282,5 @@ HELP = """
 
 • /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 • /instagram [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
-• /reel [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇLs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
+• /reel [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
 """
