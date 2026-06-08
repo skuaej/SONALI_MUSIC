@@ -1,8 +1,7 @@
+
 import re
 import os
 import time
-import json
-import subprocess
 import requests
 from io import StringIO
 from pyrogram import filters
@@ -41,42 +40,7 @@ def create_progress_bar(percentage):
     empty_blocks = total_blocks - filled_blocks
     return f"[{'⬛' * filled_blocks}{'⬜' * empty_blocks}] {percentage}%"
 
-def fix_missing_audio(file_path):
-    """Checks if audio track exists. If missing, injects a silent track to bypass Telegram GIF conversion."""
-    try:
-        # Check if the file has an audio stream using ffprobe
-        probe_cmd = [
-            'ffprobe', '-v', 'error', '-select_streams', 'a', 
-            '-show_entries', 'stream=codec_name', '-of', 'json', file_path
-        ]
-        result = subprocess.run(probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        probe_data = json.loads(result.stdout)
-        
-        # If audio stream is present, do nothing and return safely
-        if probe_data.get('streams'):
-            print("🔊 [Audio Analyzer] Sound track detected! Keeping original audio.")
-            return
-
-        print("🔇 [Audio Analyzer] No sound stream found. Injecting bypass silent layer...")
-        temp_output = f"fixed_{file_path}"
-        
-        # ONLY inject silent audio if the original video has ZERO audio streams
-        cmd = [
-            'ffmpeg', '-y', '-i', file_path,
-            '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-            '-c:v', 'copy', '-c:a', 'aac', '-shortest', temp_output
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        
-        if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
-            os.remove(file_path)
-            os.rename(temp_output, file_path)
-            print("⚙️ [FFmpeg Engine] Silent patch successfully merged!")
-    except Exception as e:
-        print(f"⚠️ [FFmpeg Error] Diagnostic check or patch execution failed: {e}")
-
 def yt_dlp_callback(d):
-    """Local Download Progress Hook"""
     global current_status_msg, last_edit_time, loop_engine
     if d['status'] == 'downloading' and current_status_msg and loop_engine:
         total = d.get('total_bytes') or d.get('total_bytes_estimate')
@@ -94,7 +58,7 @@ def yt_dlp_callback(d):
                 try:
                     asyncio.run_coroutine_threadsafe(
                         current_status_msg.edit(
-                            f"📥 **Downloading Media File (Local Engine)...**\n\n"
+                            f"📥 **Downloading Media File...**\n\n"
                             f"🎬 **Progress:** `{bar}`\n"
                             f"⚡ **Speed:** `{speed_str}`"
                         ),
@@ -104,7 +68,6 @@ def yt_dlp_callback(d):
                     pass
 
 async def pyrogram_upload_callback(current, total, status_msg):
-    """Telegram Upload Progress Hook (Both Cloud & Local)"""
     global last_edit_time
     now = time.time()
     
@@ -126,10 +89,10 @@ async def pyrogram_upload_callback(current, total, status_msg):
             pass
 
 def get_instagram_all_data(url):
-    """Backup Engine: Local yt-dlp metadata extractor"""
     clean_url = url.split("?")[0].strip().rstrip("/")
+    # SOUND FIX: Tumhare code wala exact format use kiya gaya hai
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 
+        'format': 'best[ext=mp4]/best', 
         'quiet': True,
         'no_warnings': True,
         'get_comments': True,
@@ -145,13 +108,18 @@ def get_instagram_all_data(url):
         try:
             info = ydl.extract_info(clean_url, download=False)
             video_url = info.get('url') or (info['formats'][-1]['url'] if 'formats' in info else None)
-            real_caption = info.get('description') or info.get('title') or info.get('alt_title') or 'No Caption'
             
+            real_caption = info.get('description') or info.get('title') or info.get('alt_title') or 'No Caption'
+            if real_caption and "Window" in real_caption: 
+                real_caption = info.get('title', 'No Caption')
+
             metadata = {
                 "video_url": video_url,
                 "title": real_caption.strip(),
                 "uploader": info.get('uploader', 'Unknown_User'),
                 "duration": info.get('duration'),
+                "width": info.get('width'),      # Required for GIF bypass
+                "height": info.get('height'),    # Required for GIF bypass
                 "view_count": info.get('view_count', 'N/A'),
                 "like_count": info.get('like_count', 'N/A'),
                 "id": info.get('id') or str(int(time.time())),
@@ -168,13 +136,13 @@ def get_instagram_all_data(url):
                     if len(metadata["comments"]) >= 10: break
             return metadata
         except Exception as e:
-            print(f"Local Metadata Extraction Failed: {e}")
+            print(f"Metadata Restricted Block: {e}")
             return None
 
 def download_video_locally(url, video_id):
-    """Backup Engine: Local yt-dlp downloader"""
+    # SOUND FIX: Tumhare code wala exact format use kiya gaya hai
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'best[ext=mp4]/best',
         'outtmpl': f'video_{video_id}.mp4',
         'quiet': True,
         'no_warnings': True,
@@ -187,7 +155,6 @@ def download_video_locally(url, video_id):
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     return f'video_{video_id}.mp4'
-
 
 @app.on_message((filters.text & filters.regex(INSTAGRAM_REGEX)) | filters.command(["ig", "instagram", "reel"]))
 async def auto_detect_instagram_link(client, message):
@@ -203,82 +170,35 @@ async def auto_detect_instagram_link(client, message):
         if not match: return
         url = match.group(1)
 
-    status_msg = await message.reply_text("⚡ **Link detected!** Launching Dual-Engine extraction...")
-    
+    status_msg = await message.reply_text("⚡ **Link detected!** Querying server data...")
+
     loop_engine = asyncio.get_event_loop()
     current_status_msg = status_msg
     last_edit_time = 0
 
-    # ------------------------------------------------------
-    # ENGINE 1: CLOUD WORKERS API (Primary Engine)
-    # ------------------------------------------------------
-    print("🤖 [ENGINE 1] Trying Cloud API Server Extraction...")
-    api_url = f"https://insta-dl.hazex.workers.dev/?url={url}"
-    
-    try:
-        response = requests.get(api_url, timeout=10)
-        result = response.json()
-        
-        if not result.get("error", True):
-            data = result["result"]
-            video_url = data["url"]
-            
-            raw_dur = data.get("duration", "N/A")
-            if raw_dur != "N/A":
-                try:
-                    duration_str = f"{int(float(raw_dur))} Seconds"
-                except Exception:
-                    duration_str = f"{raw_dur} Seconds"
-            else:
-                duration_str = "N/A"
-                
-            quality = data.get("quality", "N/A")
-            size = data.get("formattedSize", "N/A")
-            
-            caption = (
-                f"⚡ **Instagram Reel Downloaded (Cloud API)** ⚡\n\n"
-                f"⏰ **Duration :** {duration_str}\n"
-                f"🎬 **Quality :** {quality}\n"
-                f"📦 **Size :** {size}\n"
-            )
-            
-            await status_msg.edit("📤 **Cloud extraction successful! Initializing stream nodes...**")
-            
-            await message.reply_video(
-                video=video_url,
-                caption=caption,
-                supports_streaming=True,
-                progress=pyrogram_upload_callback,
-                progress_args=(status_msg,)
-            )
-            await status_msg.delete()
-            return  
-            
-    except Exception as api_err:
-        print(f"⚠️ [ENGINE 1 FAIL] Cloud API failed or timed out: {api_err}")
-
-    # ------------------------------------------------------
-    # ENGINE 2: LOCAL YT-DLP + COOKIES (Auto Fallback Engine)
-    # ------------------------------------------------------
-    print("🔄 [ENGINE 2] Fallback Triggered. Running Local Node Extraction...")
-    await status_msg.edit("🔄 **Cloud API busy. Switching to Core Backup Local Engine...**")
-    
     data = await loop_engine.run_in_executor(None, get_instagram_all_data, url)
-    
+
     if not data or not data.get("video_url"):
-        await status_msg.edit("❌ **Dual-Engine Extraction Failed!** Both systems rejected this link node.")
+        await status_msg.edit("❌ **Extraction Failed!** Invalid link or age-restricted content.")
         return
 
+    # DURATION FIX: Humesha strictly Seconds me dikhega
     dur = data.get("duration")
-    duration_str = f"{int(float(dur))} Seconds" if dur else "N/A"
+    v_duration = int(float(dur)) if dur else 0
+    duration_str = f"{v_duration} Seconds" if dur else "N/A"
+    
+    # GIF FIX PARAMETERS
+    v_width = data.get("width") or 720
+    v_height = data.get("height") or 1280
     
     likes = data.get("like_count", "N/A")
     likes_str = f"{likes:,}" if isinstance(likes, int) else str(likes)
+    
     views = data.get("view_count", "N/A")
     views_str = f"{views:,}" if isinstance(views, int) else str(views)
     
     caption = (
-        f"⚡ **Instagram Reel Downloaded (Backup Engine)** ⚡\n\n"
+        f"⚡ **Instagram Reel Downloaded** ⚡\n\n"
         f"👤 **Uploader :** @{data.get('uploader')}\n"
         f"⏰ **Duration :** {duration_str}\n"
         f"👀 **Views :** {views_str}\n"
@@ -293,33 +213,34 @@ async def auto_detect_instagram_link(client, message):
         file_path = await loop_engine.run_in_executor(None, download_video_locally, url, data["id"])
         
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-            # SMART DIAGNOSTIC PATTERNS
-            await status_msg.edit("🛠️ **Analyzing media frequencies & stream sanity...**")
-            await loop_engine.run_in_executor(None, fix_missing_audio, file_path)
+            await status_msg.edit("📤 **Download complete! Initializing Telegram upload channel...**")
             
-            await status_msg.edit("📤 **Local download complete! Processing Telegram upload core...**")
+            # THE MAGIC HAPPENS HERE: sound wali video mein GIF block limits pass ho rahi hain
             await message.reply_video(
                 video=file_path, 
                 caption=caption,
+                duration=v_duration,
+                width=v_width,
+                height=v_height,
                 supports_streaming=True,
                 progress=pyrogram_upload_callback,
                 progress_args=(status_msg,)
             )
+            
             await status_msg.delete()
             os.remove(file_path)
         else:
-            await status_msg.edit("❌ **Fallback Extraction Failed!** Processing nodes returned empty caches.")
+            await status_msg.edit("❌ **Extraction Failed!** Processing nodes returned empty caches.")
             if os.path.exists(file_path): os.remove(file_path)
             
     except Exception as e:
-        await status_msg.edit(f"❌ Core processing failed during workflow execution.\nError: {e}")
-
+        await status_msg.edit(f"❌ Pipeline broke down during workflow.\nError: {e}")
 
 MODULE = "Rᴇᴇʟ"
 HELP = """
 ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ:
 
-• /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
-• /instagram [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
-• /reel [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs. Pʀᴏᴠɪᴅᴇ ᴛʜᴇ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.
+• /ig [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs.
+• /instagram [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs.
+• /reel [URL]: ᴅᴏᴡɴʟᴏᴀᴅ ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟs.
 """
