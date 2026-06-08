@@ -17,7 +17,7 @@ import aiohttp
 from SONALI import LOGGER
 from urllib.parse import urlparse
 
-YOUR_API_URL = None
+YOUR_API_URL = "https://api.shrutibots.site"
 
 async def load_api_url():
     global YOUR_API_URL
