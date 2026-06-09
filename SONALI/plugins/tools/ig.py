@@ -6,7 +6,7 @@ import asyncio
 import time
 import requests
 from io import StringIO
-from pyrogram import Client, filters
+from pyrogram import filters
 from pyrogram.enums import ChatAction
 from yt_dlp import YoutubeDL
 
@@ -318,4 +318,3 @@ __HELP__ = """
 ℹ️ **Instagram Auto Downloader**:
 Simply paste any Instagram reel/post link in the chat, and the bot will auto-download and upload it for you!
 """
-            
