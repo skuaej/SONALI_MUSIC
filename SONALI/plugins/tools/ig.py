@@ -147,7 +147,8 @@ def get_instagram_all_data(url):
 
 def download_video_locally(url, video_id, progress_callback):
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        # Changed back to standard MP4 to retain full quality and sound
+        'format': 'best[ext=mp4]/best', 
         'outtmpl': f'video_{video_id}.mp4',
         'quiet': True,
         'no_warnings': True,
@@ -215,6 +216,8 @@ async def auto_detect_instagram_link(client, message):
             await status_msg.edit("📤 **Download complete! Initializing Telegram upload...**")
             
             upload_start_time = [0] # Mutable state for upload progress
+            
+            # Reverted to reply_video for full MP4 format
             await message.reply_video(
                 video=file_path,
                 caption=caption,
