@@ -2,18 +2,15 @@ import re
 import os
 import asyncio
 import time
-from itertools import cycle
+import random
 from pyrogram import filters
 from pyrogram.enums import ChatAction
 from yt_dlp import YoutubeDL
 from SONALI import app
 
 # ==========================================================
-# 🌐 CONFIGURATION: PROXIES & COOKIES
+# 🌐 CONFIGURATION: COOKIES & PROXIES
 # ==========================================================
-# ⚠️ WARNING: Your cookies contain sensitive session data. 
-# Anyone who has this file can access your account. 
-# If this is not a burner account, reset your Instagram password.
 COOKIES_DATA = r"""
 # Netscape HTTP Cookie File
 # https://curl.haxx.se/rfc/cookie_spec.html
@@ -34,12 +31,12 @@ COOKIES_DATA = r"""
 
 COOKIES_FILE = "instagram_cookies.txt"
 
-# Auto-write cookies
+# Automatically create the cookie file from the variable above
 if not os.path.exists(COOKIES_FILE):
     with open(COOKIES_FILE, "w") as f:
         f.write(COOKIES_DATA.strip())
 
-# Full Proxy Pool
+# All 10 Proxies
 RAW_PROXIES = [
     "38.154.203.95:5863:zbgnspng:l75251a9tnum",
     "198.105.121.200:6462:zbgnspng:l75251a9tnum",
@@ -57,15 +54,11 @@ def format_proxy(p_str):
     parts = p_str.split(":")
     return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
 
-PROXY_POOL = cycle([format_proxy(p) for p in RAW_PROXIES])
+PROXY_LIST = [format_proxy(p) for p in RAW_PROXIES]
 
 # ==========================================================
 # 🛠️ HELPER FUNCTIONS
 # ==========================================================
-
-def create_progress_bar(pct):
-    filled = int(pct / 10)
-    return f"[{'⬛' * filled}{'⬜' * (10 - filled)}] {pct}%"
 
 def get_yt_dlp_callback(status_msg, loop):
     last_edit = [0]
@@ -78,7 +71,7 @@ def get_yt_dlp_callback(status_msg, loop):
                     last_edit[0] = time.time()
                     try:
                         asyncio.run_coroutine_threadsafe(
-                            status_msg.edit(f"📥 **Downloading...**\n`{create_progress_bar(pct)}`"), 
+                            status_msg.edit(f"📥 **Downloading...** `{pct}%`"), 
                             loop
                         )
                     except: pass
@@ -93,10 +86,12 @@ async def insta_downloader(client, message):
     url = re.search(r'(https?://[^\s]+)', message.text).group(1)
     status_msg = await message.reply_text("⚡ **Analyzing link...**")
     
-    proxy = next(PROXY_POOL)
+    # Pick random proxy
+    proxy = random.choice(PROXY_LIST)
     loop = asyncio.get_running_loop()
     
     try:
+        # 1. Fetch Metadata
         ydl_opts = {
             'format': 'best', 
             'proxy': proxy, 
@@ -112,9 +107,9 @@ async def insta_downloader(client, message):
         data = await loop.run_in_executor(None, extract)
         file_name = f"video_{data['id']}.mp4"
         
-        # Build Caption
-        likes = data.get('like_count', 'N/A')
-        views = data.get('view_count', 'N/A')
+        # Build Caption & Metadata
+        likes = data.get('like_count', 0)
+        views = data.get('view_count', 0)
         duration = data.get('duration', 0)
         dur_str = f"{int(duration)//60}:{int(duration)%60:02d}"
         
@@ -122,9 +117,9 @@ async def insta_downloader(client, message):
             f"⚡ **Instagram Reel**\n\n"
             f"👤 **Uploader:** @{data.get('uploader', 'Unknown')}\n"
             f"⏰ **Duration:** {dur_str}\n"
-            f"❤️ **Likes:** {likes}\n"
-            f"👀 **Views:** {views}\n\n"
-            f"📝 **Caption:** {data.get('title', 'No Caption')[:100]}\n"
+            f"❤️ **Likes:** {likes:,}\n"
+            f"👀 **Views:** {views:,}\n\n"
+            f"📝 **Caption:** {data.get('title', 'No Caption')[:150]}\n"
         )
         
         comments = data.get('comments', [])
@@ -134,7 +129,7 @@ async def insta_downloader(client, message):
                 clean_text = c.get('text', '').replace('\n', ' ')[:40]
                 caption += f"💬 @{c.get('author', 'user')}: {clean_text}\n"
 
-        # Download
+        # 2. Download
         await status_msg.edit("📥 **Downloading content...**")
         download_opts = {
             'format': 'best', 
@@ -145,14 +140,14 @@ async def insta_downloader(client, message):
         }
         await loop.run_in_executor(None, lambda: YoutubeDL(download_opts).download([url]))
         
-        # Upload
+        # 3. Upload
         if os.path.exists(file_name):
             await status_msg.edit("📤 **Uploading to Telegram...**")
             await message.reply_video(video=file_name, caption=caption)
             await status_msg.delete()
             os.remove(file_name)
         else:
-            await status_msg.edit("❌ **Error:** Download failed.")
+            await status_msg.edit("❌ **Download failed.**")
             
     except Exception as e:
         await status_msg.edit(f"❌ **Error:** `{str(e)[:50]}`")
