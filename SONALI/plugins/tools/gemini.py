@@ -14,7 +14,7 @@ from SONALI import app
 os.system(f"{sys.executable} -m pip install --upgrade yt-dlp")
 
 
-app = Client("pydroid_test_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+#app = Client("pydroid_test_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 INSTAGRAM_REGEX = r".*(instagram\.com|instagr\.am)/(p|reel|tv|share)/[^\s]+"
 
