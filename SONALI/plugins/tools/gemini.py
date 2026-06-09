@@ -1,90 +1,47 @@
 import re
 import os
 import sys
+import json
+import random
 import asyncio
 import time
-import threading
+import requests
 from io import StringIO
-from flask import Flask, request, jsonify
-from pyrogram import Client, filters
+from pyrogram import filters
+from pyrogram.enums import ChatAction
 from yt_dlp import YoutubeDL
 
-# Import configuration and main app core
-import config
+# Config aur APIs standard structures import
+from config import BANNED_USERS
+from PurviAPI import api as purvi_api  
+from MukeshAPI import api as mukesh_api  
 from SONALI import app
 
-# ==========================================================
-# FLASK API ENGINE & ENDPOINT
-# ==========================================================
-flask_app = Flask(__name__)
-
-@flask_app.route('/')
-def home():
-    return jsonify({
-        "status": "running",
-        "endpoints": {
-            "download_api": "/download [POST]"
-        }
-    }), 200
-
-@flask_app.route('/download', methods=['POST'])
-def download_api_endpoint():
-    """
-    Endpoint: http://YOUR_VPS_IP:8080/download
-    Method: POST
-    JSON Body: { "url": "https://www.instagram.com/reel/..." }
-    """
-    data = request.get_json()
-    if not data or 'url' not in data:
-        return jsonify({"error": "Missing 'url' parameter in JSON body"}), 400
-    
-    video_url = data['url']
-    
-    # Run the metadata scraping engine synchronously for the API response
-    try:
-        metadata = get_instagram_all_data(video_url)
-        if not metadata.get("video_url"):
-            return jsonify({"status": "failed", "reason": "Content restricted or invalid link"}), 400
-            
-        return jsonify({
-            "status": "success",
-            "uploader": metadata.get("uploader"),
-            "title": metadata.get("title"),
-            "duration_seconds": metadata.get("duration"),
-            "views": metadata.get("view_count"),
-            "likes": metadata.get("like_count"),
-            "direct_download_url": metadata.get("video_url")
-        }), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-def run_flask():
-    # Runs the API on port 8080
-    flask_app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
-
-# ==========================================================
-# SECONDARY TELEGRAM BOT INITIALIZATION
-# ==========================================================
-insta_bot = Client(
-    "insta_downloader_session", 
-    api_id=config.INSTA_API_ID, 
-    api_hash=config.INSTA_API_HASH, 
-    bot_token=config.INSTA_BOT_TOKEN
-)
-
-INSTAGRAM_REGEX = r".*(instagram\.com|instagr\.am)/(p|reel|tv|share)/[^\s]+"
-
+# --- GLOBAL VARIABLES & STATE TRACKING ---
+INSTAGRAM_REGEX = r".*(instagram.com|instagr.am)/(p|reel|tv|share)/[^\s]+"
 current_status_msg = None
 last_edit_time = 0
-loop_engine = None
 
-COOKIES_DATA = """
-# Netscape HTTP Cookie File
-.instagram.com	TRUE	/	TRUE	0	sessionid	YOUR_ACTUAL_SESSION_ID_HERE
-.instagram.com	TRUE	/	TRUE	0	ds_user_id	YOUR_USER_ID_HERE
+# --- LIVE REAL INSTAGRAM COOKIES DATA ---
+COOKIES_DATA = """# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.instagram.com	TRUE	/	TRUE	1815543658	csrftoken	UHOEPGsEWWZCyWaTiQREctWt6VCVpEi2
+.instagram.com	TRUE	/	TRUE	1815543467	datr	q6YnagrdppRbnk_z74CLmql7
+.instagram.com	TRUE	/	TRUE	1812519467	ig_did	83632560-C690-4FB6-8BF3-BD321873D9AF
+.instagram.com	TRUE	/	TRUE	1781588459	wd	360x634
+.instagram.com	TRUE	/	TRUE	1781588346	dpr	3
+.instagram.com	TRUE	/	TRUE	1815543468	mid	aiemqwABAAF5b3O6W9brtE9zHHO0
+.instagram.com	TRUE	/	TRUE	1788759658	ds_user_id	25349046417
+.instagram.com	TRUE	/	TRUE	1812519546	sessionid	25349046417%3AelmMsdUhcSc1He%3A4%3AAYjZFTNLvevhBdQs48r-Bh5FxmIXO0yRu4uibe5kaw
+.instagram.com	TRUE	/	TRUE	1815543547	ps_l	1
+.instagram.com	TRUE	/	TRUE	1815543547	ps_n	1
+.instagram.com	TRUE	/	TRUE	0	rur	"SNB\\05425349046417\\0541812519658:01fffc9637faa298604a83c726eeea0db1be399feb6739f78b44fa57fa6ae6e555759255"
 """
 CLEANED_COOKIES = COOKIES_DATA.strip()
 
+# --- UTILITIES ---
 def create_progress_bar(percentage):
     total_blocks = 10
     filled_blocks = int(percentage / 10)
@@ -92,147 +49,261 @@ def create_progress_bar(percentage):
     return f"[{'⬛' * filled_blocks}{'⬜' * empty_blocks}] {percentage}%"
 
 def yt_dlp_callback(d):
-    global current_status_msg, last_edit_time, loop_engine
-    if d['status'] == 'downloading' and current_status_msg and loop_engine:
+    global current_status_msg, last_edit_time
+    if d['status'] == 'downloading' and current_status_msg:
         total = d.get('total_bytes') or d.get('total_bytes_estimate')
         downloaded = d.get('downloaded_bytes', 0)
-        if total:
-            percentage = int((downloaded / total) * 100)
-            bar = create_progress_bar(percentage)
-            speed = d.get('speed', 0)
-            speed_str = f"{speed / (1024 * 1024):.2f} MB/s" if speed else "Scraping..."
-            now = time.time()
-            if now - last_edit_time > 2.0:
-                last_edit_time = now
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        current_status_msg.edit(
-                            f"📥 **Downloading Media File...**\n\n"
-                            f"🎬 **Progress:** `{bar}`\n"
-                            f"⚡ **Speed:** `{speed_str}`"
-                        ),
-                        loop_engine
+
+        if total:  
+            percentage = int((downloaded / total) * 100)  
+            bar = create_progress_bar(percentage)  
+            speed = d.get('speed', 0)  
+            speed_str = f"{speed / (1024 * 1024):.2f} MB/s" if speed else "Scraping Audio..."  
+              
+            now = time.time()  
+            if now - last_edit_time > 2.0:  
+                last_edit_time = now  
+                try:  
+                    loop = app.loop or asyncio.get_event_loop()
+                    asyncio.run_coroutine_threadsafe(  
+                        current_status_msg.edit(  
+                            f"📥 **Downloading Video Assets...**\n"
+                            f"🎛️ *Status:* `Syncing independent trending audio track`\n\n"
+                            f"🎬 **Progress:** `{bar}`\n"  
+                            f"⚡ **Speed:** `{speed_str}`"  
+                        ),  
+                        loop  
                     )
-                except Exception:
+                except Exception:  
                     pass
 
 async def pyrogram_upload_callback(current, total, status_msg):
     global last_edit_time
     now = time.time()
-    if now - last_edit_time > 2.0:
-        last_edit_time = now
-        percentage = int((current / total) * 100)
-        bar = create_progress_bar(percentage)
-        current_mb = current / (1024 * 1024)
-        total_mb = total / (1024 * 1024)
-        try:
-            await status_msg.edit(
-                f"📤 **Uploading to Telegram Server...**\n\n"
-                f"🚀 **Progress:** `{bar}`\n"
-                f"📦 **Size:** `{current_mb:.2f} MB` / `{total_mb:.2f} MB`"
-            )
-        except Exception:
+
+    if now - last_edit_time > 2.0:  
+        last_edit_time = now  
+        percentage = int((current / total) * 100)  
+        bar = create_progress_bar(percentage)  
+          
+        current_mb = current / (1024 * 1024)  
+        total_mb = total / (1024 * 1024)  
+          
+        try:  
+            await status_msg.edit(  
+                f"📤 **Uploading Force-Merged Video to Telegram...**\n\n"  
+                f"🚀 **Progress:** `{bar}`\n"  
+                f"📦 **Size:** `{current_mb:.2f} MB` / `{total_mb:.2f} MB`"  
+            )  
+        except Exception:  
             pass
 
-def get_instagram_all_data(url):
+def fetch_instagram_data_and_comments(url):
     clean_url = url.split("?")[0].strip().rstrip("/")
+    
     ydl_opts = {
-        'format': 'best[ext=mp4]/best', 
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
         'get_comments': True,
         'http_headers': {
-            'User-Agent': 'Instagram 311.0.0.32.118 Android (33/13; 450dpi; 1080x2216; Samsung; SM-S908B; q2q; qcom; en_US; 548232598)',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         }
     }
-    if "sessionid" in CLEANED_COOKIES.lower():
-        ydl_opts['cookiefile'] = StringIO(CLEANED_COOKIES)
-
-    with YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(clean_url, download=False)
-            video_url = info.get('url') or (info['formats'][-1]['url'] if 'formats' in info else None)
-            real_caption = info.get('description') or info.get('title') or info.get('alt_title') or 'No Caption'
-            metadata = {
-                "video_url": video_url,
-                "title": real_caption.strip(),
-                "uploader": info.get('uploader', 'Unknown_User'),
-                "duration": info.get('duration'),
-                "view_count": info.get('view_count', 'N/A'),
-                "like_count": info.get('like_count', 'N/A'),
-                "id": info.get('id') or str(int(time.time())),
-                "comments": []
-            }
-            return metadata
-        except Exception as e:
-            return {"video_url": None}
-
-def download_video_locally(url, video_id):
-    ydl_opts = {
-        'format': 'best[ext=mp4]/best',
-        'outtmpl': f'video_{video_id}.mp4',
-        'quiet': True,
-        'no_warnings': True,
-        'progress_hooks': [yt_dlp_callback],
-    }
-    if "sessionid" in CLEANED_COOKIES.lower():
-        ydl_opts['cookiefile'] = StringIO(CLEANED_COOKIES)
-    with YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    return f'video_{video_id}.mp4'
-
-@insta_bot.on_message(filters.text & filters.regex(INSTAGRAM_REGEX))
-async def auto_detect_instagram_link(client, message):
-    global current_status_msg, last_edit_time, loop_engine
-    match = re.search(r'(https?://[^\s]+)', message.text)
-    if not match: return
-        
-    url = match.group(1)
-    status_msg = await message.reply_text("⚡ **Link detected!** Querying server data...")
-    loop_engine = asyncio.get_event_loop()
-    current_status_msg = status_msg
-    last_edit_time = 0
-
-    data = await loop_engine.run_in_executor(None, get_instagram_all_data, url)
-    if not data.get("video_url"):
-        await status_msg.edit("❌ **Extraction Failed!** Content restricted or link broken.")
-        return
-
-    dur = data.get("duration")
-    duration_str = f"{int(float(dur)) // 60}:{int(float(dur)) % 60:02d} Mins" if dur else "N/A"
     
-    caption = (
-        f"⚡ **Instagram Reel Downloaded** ⚡\n\n"
-        f"👤 **Uploader :** @{data.get('uploader')}\n"
-        f"⏰ **Duration :** {duration_str}\n"
-    )
+    if "sessionid" in CLEANED_COOKIES.lower():  
+        ydl_opts['cookiefile'] = StringIO(CLEANED_COOKIES)  
 
     try:
-        file_path = await loop_engine.run_in_executor(None, download_video_locally, url, data["id"])
-        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-            await status_msg.edit("📤 **Download complete! Initializing Telegram upload channel...**")
-            await message.reply_video(
-                video=file_path, 
-                caption=caption,
-                progress=pyrogram_upload_callback,
-                progress_args=(status_msg,)
-            )
-            await status_msg.delete()
-            os.remove(file_path)
-    except Exception as e:
-        await status_msg.edit(f"❌ Pipeline broke down during workflow.\nError: {e}")
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(clean_url, download=False)
+            video_url = info.get('url') or (info['formats'][-1]['url'] if 'formats' in info else None)
+            caption_text = info.get('description') or info.get('title') or 'No Caption'
+            
+            audio_url = None
+            if not info.get('requested_formats') or not any(f.get('vcodec') == 'none' for f in info.get('requested_formats', [])):
+                audio_url = info.get('audio_url') or info.get('music_url')
 
-# ==========================================================
-# TIMING HOOKS
-# ==========================================================
-@app.on_start()
-async def start_everything(client):
-    print("[INFO] - Launching Flask Web Engine on Port 8080...")
-    threading.Thread(target=run_flask, daemon=True).start()
+            comments_list = []
+            raw_comments = info.get('comments', [])
+            if raw_comments:
+                sorted_comments = sorted(raw_comments, key=lambda x: (x.get('like_count', 0) or 0), reverse=True)
+                for c in sorted_comments[:10]:
+                    author = c.get('author', 'anonymous_user')
+                    text = c.get('text', '').strip().replace('\n', ' ')
+                    if text: comments_list.append(f"💬 @{author}: {text}")
+
+            if video_url:
+                return {
+                    "success": True,
+                    "video_url": video_url,
+                    "audio_url": audio_url,
+                    "title": caption_text.strip(),
+                    "uploader": info.get('uploader', 'Instagram_Creator'),
+                    "id": info.get('id') or str(int(time.time())),
+                    "comments": comments_list
+                }
+    except Exception:
+        pass
+        
+    try:
+        api_url = f"https://api.vkrsu.my.id/social/download?url={clean_url}"
+        res = requests.get(api_url, timeout=10).json()
+        data = res.get("data", res.get("result", {}))
+        if isinstance(data, list) and len(data) > 0: data = data[0]
+        v_url = data.get("url") or data.get("video")
+        if v_url:
+            return {
+                "success": True,
+                "video_url": v_url,
+                "audio_url": data.get("audio") or data.get("audio_url"),
+                "title": data.get("caption", "No Caption"),
+                "uploader": data.get("username", "Instagram_User"),
+                "id": str(int(time.time())),
+                "comments": []
+            }
+    except Exception:
+        pass
+        
+    return {"success": False}
+
+def download_and_mux_streams(url, data, vid_id):
+    out_file = f"video_{vid_id}.mp4"
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': out_file,
+        'quiet': True,
+        'no_warnings': True,
+        'merge_output_format': 'mp4',
+        'progress_hooks': [yt_dlp_callback],
+    }
+    if "sessionid" in CLEANED_COOKIES.lower():  
+        ydl_opts['cookiefile'] = StringIO(CLEANED_COOKIES)  
+        
+    with YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+        
+    if data.get("audio_url") and os.path.exists(out_file):
+        temp_audio = f"audio_{vid_id}.m4a"
+        try:
+            r = requests.get(data["audio_url"], timeout=30)
+            with open(temp_audio, 'wb') as f:
+                f.write(r.content)
+            
+            muxed_file = f"muxed_{vid_id}.mp4"
+            os.system(f"ffmpeg -y -i {out_file} -i {temp_audio} -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 {muxed_file} >/dev/null 2>&1")
+            
+            if os.path.exists(muxed_file) and os.path.getsize(muxed_file) > 1000:
+                os.remove(out_file)
+                os.remove(temp_audio)
+                return muxed_file
+            if os.path.exists(temp_audio): os.remove(temp_audio)
+        except Exception:
+            if os.path.exists(temp_audio): os.remove(temp_audio)
+            
+    return out_file
+
+# --- HANDLERS & PLUGINS ---
+
+@app.on_message(filters.text & filters.regex(INSTAGRAM_REGEX) & ~BANNED_USERS)
+async def auto_detect_instagram_link(client, message):
+    global current_status_msg, last_edit_time
     
-    print("[INFO] - Starting Secondary Instagram Bot...")
-    await insta_bot.start()
+    match = re.search(r'(https?://[^\s]+)', message.text)  
+    if not match: return  
+          
+    url = match.group(1)
+    status_msg = await message.reply_text("⚡ **Link detected!** Extracting trending audio layout + comments graph...")  
+    
+    loop_engine = asyncio.get_running_loop()  
+    current_status_msg = status_msg  
+    last_edit_time = 0  
 
-@app.on_stop()
-async def stop_everything(client):
-    await insta_bot.stop()
+    data = await loop_engine.run_in_executor(None, fetch_instagram_data_and_comments, url)  
+    
+    if not data.get("success") or not data.get("video_url"):
+        await status_msg.edit("❌ **Extraction Failed!** Link restricted or account cookies are invalid.")
+        return
+
+    caption = (  
+        f"⚡ **Instagram Reel Downloaded** ⚡\n\n"  
+        f"👤 **Uploader :** @{data.get('uploader')}\n"  
+        f"🎵 **Audio Track :** `Synced / Muxed (Trending Fixed)`\n\n"  
+        f"📝 **Caption :** {data.get('title')[:180]}...\n"  
+    )  
+    
+    if data.get("comments"):
+        caption += "\n📊 **Top 10 User Comments:**\n" + "\n".join(data["comments"])
+    else:
+        caption += "\n📊 **Top 10 User Comments:**\n💬 No public comments indexed or session restricted."
+
+    if len(caption) > 1010: caption = caption[:970] + "\n\n...[Truncated]"
+
+    try:  
+        await status_msg.edit("📥 **Downloading stream modules... Merging external audio asset files...**")
+        file_path = await loop_engine.run_in_executor(None, download_and_mux_streams, url, data, data["id"])
+
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:  
+            await status_msg.edit("📤 **Audio and Video multiplexed successfully! Uploading...**")  
+              
+            await message.reply_video(  
+                video=file_path,   
+                caption=caption,  
+                progress=pyrogram_upload_callback,  
+                progress_args=(status_msg,)  
+            )  
+              
+            await status_msg.delete()  
+            os.remove(file_path)  
+        else:
+            await status_msg.edit("❌ **Extraction Failed!** Output stream broke down.")
+            if os.path.exists(file_path): os.remove(file_path)
+              
+    except Exception as e:  
+        await status_msg.edit(f"❌ Pipeline broke down during workflow.\nError: {e}")
+        if 'file_path' in locals() and os.path.exists(file_path): os.remove(file_path)
+
+# 2. ChatGPT AI Plugin Hook
+@app.on_message(filters.command(["chatgpt", "ai", "ask"]) & ~BANNED_USERS)
+async def chatgpt_chat(bot, message):
+    if len(message.command) < 2 and not message.reply_to_message:
+        await message.reply_text("Example:\n\n`/ai write simple website code using html css, js?`")
+        return
+    user_input = message.reply_to_message.text if message.reply_to_message and message.reply_to_message.text else " ".join(message.command[1:])
+    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    try:
+        results = await purvi_api.chatgpt(user_input)
+        await message.reply_text(results)
+    except Exception as e:
+        await message.reply_text(f"❌ Error: {e}")
+
+# 3. Gemini AI Plugin Hook
+@app.on_message(filters.command(["gemini"]) & ~BANNED_USERS)
+async def gemini_handler(client, message):
+    await app.send_chat_action(message.chat.id, ChatAction.TYPING)
+    if message.text.startswith(f"/gemini@{app.username}") and len(message.text.split(" ", 1)) > 1:
+        user_input = message.text.split(" ", 1)[1]
+    elif message.reply_to_message and message.reply_to_message.text:
+        user_input = message.reply_to_message.text
+    else:
+        if len(message.command) > 1: user_input = " ".join(message.command[1:])
+        else:
+            await message.reply_text("ᴇxᴀᴍᴘʟᴇ :- /gemini who is lord ram")
+            return
+    try:  
+        response = mukesh_api.gemini(user_input)  
+        x = response.get("results")  
+        if x: await message.reply_text(x, quote=True)  
+        else: await message.reply_text("sᴏʀʀʏ sɪʀ! ᴘʟᴇᴀsᴇ Tʀʏ ᴀɢᴀɪɴ")  
+    except Exception as e:
+        await message.reply_text(f"❌ Process Error: {e}")
+
+__MODULE__ = "Aɪ & Uᴛɪʟs"
+__HELP__ = """
+/ai [ǫᴜᴇʀʏ] - ᴀsᴋ ʏᴏᴜʀ ǫᴜᴇsᴛɪᴏɴ ᴡɪᴛʜ ᴄʜᴀᴛɢᴘᴛ's ᴀɪ
+/gemini [ǫᴜᴇʀʏ] - ᴀsᴋ ʏᴏᴜʀ ǫᴜᴇsᴛɪᴏɴ ᴡɪᴛʜ ɢᴏᴏɢʟᴇ's ɢᴇᴍɪɴɪ ᴀɪ
+
+ℹ️ **Instagram Auto Downloader**:
+Paste any link, bot will multiplex split external trending audios and extract top 10 liked comments automatically!
+"""
+                                 
