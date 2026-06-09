@@ -31,7 +31,7 @@ COOKIES_DATA = r"""
 
 COOKIES_FILE = "instagram_cookies.txt"
 
-# Automatically create the cookie file from the variable above
+# Ensure Cookies exist
 if not os.path.exists(COOKIES_FILE):
     with open(COOKIES_FILE, "w") as f:
         f.write(COOKIES_DATA.strip())
@@ -59,7 +59,6 @@ PROXY_LIST = [format_proxy(p) for p in RAW_PROXIES]
 # ==========================================================
 # 🛠️ HELPER FUNCTIONS
 # ==========================================================
-
 def get_yt_dlp_callback(status_msg, loop):
     last_edit = [0]
     def callback(d):
@@ -86,12 +85,10 @@ async def insta_downloader(client, message):
     url = re.search(r'(https?://[^\s]+)', message.text).group(1)
     status_msg = await message.reply_text("⚡ **Analyzing link...**")
     
-    # Pick random proxy
     proxy = random.choice(PROXY_LIST)
     loop = asyncio.get_running_loop()
     
     try:
-        # 1. Fetch Metadata
         ydl_opts = {
             'format': 'best', 
             'proxy': proxy, 
@@ -107,7 +104,7 @@ async def insta_downloader(client, message):
         data = await loop.run_in_executor(None, extract)
         file_name = f"video_{data['id']}.mp4"
         
-        # Build Caption & Metadata
+        # Build Caption
         likes = data.get('like_count', 0)
         views = data.get('view_count', 0)
         duration = data.get('duration', 0)
@@ -129,7 +126,7 @@ async def insta_downloader(client, message):
                 clean_text = c.get('text', '').replace('\n', ' ')[:40]
                 caption += f"💬 @{c.get('author', 'user')}: {clean_text}\n"
 
-        # 2. Download
+        # Download
         await status_msg.edit("📥 **Downloading content...**")
         download_opts = {
             'format': 'best', 
@@ -140,7 +137,7 @@ async def insta_downloader(client, message):
         }
         await loop.run_in_executor(None, lambda: YoutubeDL(download_opts).download([url]))
         
-        # 3. Upload
+        # Upload
         if os.path.exists(file_name):
             await status_msg.edit("📤 **Uploading to Telegram...**")
             await message.reply_video(video=file_name, caption=caption)
