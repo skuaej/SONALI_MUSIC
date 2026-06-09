@@ -3,23 +3,73 @@ import os
 import sys
 import asyncio
 import time
+import threading
 from io import StringIO
+from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from yt_dlp import YoutubeDL
 
-# ==========================================================
-# CONFIGURATION FOR YOUR SECONDARY BOT
-# ==========================================================
-API_ID = 27479878
-API_HASH = "05f8dc8265d4c5df6376dded1d71c0ff"
-BOT_TOKEN = "8787555AAE1ezlBX--kAVPRGHPeQ2XV99Jvg8dhkXw"
+# Import configuration and main app core
+import config
+from SONALI import app
 
-# Dedicated client instance for the Instagram Downloader
+# ==========================================================
+# FLASK API ENGINE & ENDPOINT
+# ==========================================================
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return jsonify({
+        "status": "running",
+        "endpoints": {
+            "download_api": "/download [POST]"
+        }
+    }), 200
+
+@flask_app.route('/download', methods=['POST'])
+def download_api_endpoint():
+    """
+    Endpoint: http://YOUR_VPS_IP:8080/download
+    Method: POST
+    JSON Body: { "url": "https://www.instagram.com/reel/..." }
+    """
+    data = request.get_json()
+    if not data or 'url' not in data:
+        return jsonify({"error": "Missing 'url' parameter in JSON body"}), 400
+    
+    video_url = data['url']
+    
+    # Run the metadata scraping engine synchronously for the API response
+    try:
+        metadata = get_instagram_all_data(video_url)
+        if not metadata.get("video_url"):
+            return jsonify({"status": "failed", "reason": "Content restricted or invalid link"}), 400
+            
+        return jsonify({
+            "status": "success",
+            "uploader": metadata.get("uploader"),
+            "title": metadata.get("title"),
+            "duration_seconds": metadata.get("duration"),
+            "views": metadata.get("view_count"),
+            "likes": metadata.get("like_count"),
+            "direct_download_url": metadata.get("video_url")
+        }), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def run_flask():
+    # Runs the API on port 8080
+    flask_app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+
+# ==========================================================
+# SECONDARY TELEGRAM BOT INITIALIZATION
+# ==========================================================
 insta_bot = Client(
     "insta_downloader_session", 
-    api_id=API_ID, 
-    api_hash=API_HASH, 
-    bot_token=BOT_TOKEN
+    api_id=config.INSTA_API_ID, 
+    api_hash=config.INSTA_API_HASH, 
+    bot_token=config.INSTA_BOT_TOKEN
 )
 
 INSTAGRAM_REGEX = r".*(instagram\.com|instagr\.am)/(p|reel|tv|share)/[^\s]+"
@@ -28,14 +78,8 @@ current_status_msg = None
 last_edit_time = 0
 loop_engine = None
 
-# ==========================================================
-# COOKIES TEXT AREA
-# ==========================================================
 COOKIES_DATA = """
 # Netscape HTTP Cookie File
-# http://curl.haxx.se/rfc/cookie_spec.html
-# This is a generated file! Do not edit.
-
 .instagram.com	TRUE	/	TRUE	0	sessionid	YOUR_ACTUAL_SESSION_ID_HERE
 .instagram.com	TRUE	/	TRUE	0	ds_user_id	YOUR_USER_ID_HERE
 """
@@ -52,13 +96,11 @@ def yt_dlp_callback(d):
     if d['status'] == 'downloading' and current_status_msg and loop_engine:
         total = d.get('total_bytes') or d.get('total_bytes_estimate')
         downloaded = d.get('downloaded_bytes', 0)
-        
         if total:
             percentage = int((downloaded / total) * 100)
             bar = create_progress_bar(percentage)
             speed = d.get('speed', 0)
             speed_str = f"{speed / (1024 * 1024):.2f} MB/s" if speed else "Scraping..."
-            
             now = time.time()
             if now - last_edit_time > 2.0:
                 last_edit_time = now
@@ -121,21 +163,9 @@ def get_instagram_all_data(url):
                 "id": info.get('id') or str(int(time.time())),
                 "comments": []
             }
-            raw_comments = info.get('comments', [])
-            if raw_comments:
-                sorted_comments = sorted(raw_comments, key=lambda x: (x.get('like_count', 0), len(x.get('text', ''))), reverse=True)
-                for c in sorted_comments:
-                    author = c.get('author', 'anonymous_user')
-                    text = c.get('text', '').strip().replace('\n', ' ')
-                    if text: metadata["comments"].append(f"💬 @{author}: {text}")
-                    if len(metadata["comments"]) >= 10: break
             return metadata
         except Exception as e:
-            return {
-                "video_url": None, "title": "Restricted / Age-Gated Content", "uploader": "Restricted_Audience",
-                "duration": None, "view_count": "N/A", "like_count": "N/A", "id": str(int(time.time())),
-                "comments": ["💬 System: Top comments hidden for restricted links."]
-            }
+            return {"video_url": None}
 
 def download_video_locally(url, video_id):
     ydl_opts = {
@@ -154,41 +184,31 @@ def download_video_locally(url, video_id):
 @insta_bot.on_message(filters.text & filters.regex(INSTAGRAM_REGEX))
 async def auto_detect_instagram_link(client, message):
     global current_status_msg, last_edit_time, loop_engine
-    
     match = re.search(r'(https?://[^\s]+)', message.text)
     if not match: return
         
     url = match.group(1)
     status_msg = await message.reply_text("⚡ **Link detected!** Querying server data...")
-
     loop_engine = asyncio.get_event_loop()
     current_status_msg = status_msg
     last_edit_time = 0
 
     data = await loop_engine.run_in_executor(None, get_instagram_all_data, url)
+    if not data.get("video_url"):
+        await status_msg.edit("❌ **Extraction Failed!** Content restricted or link broken.")
+        return
 
     dur = data.get("duration")
     duration_str = f"{int(float(dur)) // 60}:{int(float(dur)) % 60:02d} Mins" if dur else "N/A"
-    likes = data.get("like_count", "N/A")
-    likes_str = f"{likes:,}" if isinstance(likes, int) else str(likes)
-    views = data.get("view_count", "N/A")
-    views_str = f"{views:,}" if isinstance(views, int) else str(views)
     
     caption = (
         f"⚡ **Instagram Reel Downloaded** ⚡\n\n"
         f"👤 **Uploader :** @{data.get('uploader')}\n"
         f"⏰ **Duration :** {duration_str}\n"
-        f"👀 **Views :** {views_str}\n"
-        f"❤️ **Likes :** {likes_str}\n\n"
-        f"📝 **Caption :** {data.get('title')[:200]}...\n"
     )
-    if data.get("comments"):
-        caption += "\n📊 **Top 10 User Comments:**\n" + "\n".join(data["comments"])
-    if len(caption) > 1010: caption = caption[:970] + "\n\n...[Truncated]"
 
     try:
         file_path = await loop_engine.run_in_executor(None, download_video_locally, url, data["id"])
-        
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             await status_msg.edit("📤 **Download complete! Initializing Telegram upload channel...**")
             await message.reply_video(
@@ -199,25 +219,20 @@ async def auto_detect_instagram_link(client, message):
             )
             await status_msg.delete()
             os.remove(file_path)
-        else:
-            await status_msg.edit("❌ **Extraction Failed!** Invalid or expired cookies parse setup.")
-            if os.path.exists(file_path): os.remove(file_path)
     except Exception as e:
         await status_msg.edit(f"❌ Pipeline broke down during workflow.\nError: {e}")
 
 # ==========================================================
-# FORCE INJECTION INTO THE MAIN BOT ENGINE LIFECYCLE
+# TIMING HOOKS
 # ==========================================================
-from SONALI import app
-
 @app.on_start()
-async def start_secondary_bot(client):
+async def start_everything(client):
+    print("[INFO] - Launching Flask Web Engine on Port 8080...")
+    threading.Thread(target=run_flask, daemon=True).start()
+    
     print("[INFO] - Starting Secondary Instagram Bot...")
     await insta_bot.start()
-    print("[INFO] - Secondary Instagram Bot Started Successfully!")
 
 @app.on_stop()
-async def stop_secondary_bot(client):
-    print("[INFO] - Shutting down Secondary Instagram Bot...")
+async def stop_everything(client):
     await insta_bot.stop()
-    
