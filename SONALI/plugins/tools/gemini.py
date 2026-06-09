@@ -24,7 +24,6 @@ insta_bot = Client(
 
 INSTAGRAM_REGEX = r".*(instagram\.com|instagr\.am)/(p|reel|tv|share)/[^\s]+"
 
-# Global reference variables tracking state
 current_status_msg = None
 last_edit_time = 0
 loop_engine = None
@@ -152,7 +151,6 @@ def download_video_locally(url, video_id):
         ydl.download([url])
     return f'video_{video_id}.mp4'
 
-# Binding handler explicitly to our standalone client
 @insta_bot.on_message(filters.text & filters.regex(INSTAGRAM_REGEX))
 async def auto_detect_instagram_link(client, message):
     global current_status_msg, last_edit_time, loop_engine
@@ -207,5 +205,19 @@ async def auto_detect_instagram_link(client, message):
     except Exception as e:
         await status_msg.edit(f"❌ Pipeline broke down during workflow.\nError: {e}")
 
-# Automatically start the downloader client side-by-side with the main bot engine
-asyncio.ensure_future(insta_bot.start())
+# ==========================================================
+# FORCE INJECTION INTO THE MAIN BOT ENGINE LIFECYCLE
+# ==========================================================
+from SONALI import app
+
+@app.on_start()
+async def start_secondary_bot(client):
+    print("[INFO] - Starting Secondary Instagram Bot...")
+    await insta_bot.start()
+    print("[INFO] - Secondary Instagram Bot Started Successfully!")
+
+@app.on_stop()
+async def stop_secondary_bot(client):
+    print("[INFO] - Shutting down Secondary Instagram Bot...")
+    await insta_bot.stop()
+    
