@@ -172,9 +172,7 @@ def slider_markup(_, videoid, user_id, query, query_type, channel, fplay):
 
 ## Queue Markup
 
-
 def queue_markup(_, videoid, chat_id):
-
     buttons = [
         [
             InlineKeyboardButton(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
@@ -422,4 +420,26 @@ def telegram_markup_timer(_, chat_id, played, dur):
         ],
     ]
     return buttons
-    
+
+
+# --- Added missing aq_markup to fix ImportError ---
+
+def aq_markup(_, chat_id):
+    buttons = [
+        [
+            InlineKeyboardButton(text="🔊 Audio Quality 🔊", callback_data="notext"),
+        ],
+        [
+            InlineKeyboardButton(text="Studio", callback_data=f"AudioStream {chat_id}|studio"),
+            InlineKeyboardButton(text="High", callback_data=f"AudioStream {chat_id}|high"),
+            InlineKeyboardButton(text="Medium", callback_data=f"AudioStream {chat_id}|medium"),
+        ],
+        [
+            InlineKeyboardButton(text="Low", callback_data=f"AudioStream {chat_id}|low"),
+        ],
+        [
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close"),
+        ],
+    ]
+    return buttons
+
