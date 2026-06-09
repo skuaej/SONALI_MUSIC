@@ -12,7 +12,7 @@ from yt_dlp import YoutubeDL
 # ==========================================================
 API_ID = 27479878
 API_HASH = "05f8dc8265d4c5df6376dded1d71c0ff"
-BOT_TOKEN = "8787555317:AAE1ezlBX--kAVPRGHPeQ2XV99Jvg8dhkXw"
+BOT_TOKEN = "8787555AAE1ezlBX--kAVPRGHPeQ2XV99Jvg8dhkXw"
 
 # Dedicated client instance for the Instagram Downloader
 insta_bot = Client(
