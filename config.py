@@ -24,7 +24,7 @@ BOT_NAME = getenv("BOT_NAME", "Sonali Music")
 # ===============================================
 
 MONGO_DB_URI = getenv("MONGO_DB_URI", None)
-DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", 17000))
+DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", 100))
 
 # ===============================================
 
@@ -39,8 +39,8 @@ GIT_TOKEN = getenv("GIT_TOKEN", None)
 
 # ===============================================
 
-SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/PURVI_BOTS")
-SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/PURVI_UPDATES")
+SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/jasminemusicgc")
+SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/jasminemusicgc")
 
 # ===============================================
 
@@ -53,7 +53,7 @@ SPOTIFY_CLIENT_SECRET = getenv("SPOTIFY_CLIENT_SECRET", None)
 
 # ===============================================
 
-PLAYLIST_FETCH_LIMIT = int(getenv("PLAYLIST_FETCH_LIMIT", 25))
+PLAYLIST_FETCH_LIMIT = int(getenv("PLAYLIST_FETCH_LIMIT", 8))
 TG_AUDIO_FILESIZE_LIMIT = int(getenv("TG_AUDIO_FILESIZE_LIMIT", 104857600))   
 TG_VIDEO_FILESIZE_LIMIT = int(getenv("TG_VIDEO_FILESIZE_LIMIT", 1073741824))     
 
