@@ -10,9 +10,8 @@ from yt_dlp import YoutubeDL
 # Importing app from your main bot file
 from SONALI import app
 
-# Ensure yt-dlp is up to date (Optional, but keeping your logic)
-# Note: In a production bot, it's better to update dependencies via requirements.txt
-os.system(f"python3 -m pip install --upgrade yt-dlp")
+# Ensure yt-dlp is up to date
+os.system("python3 -m pip install --upgrade yt-dlp")
 
 INSTAGRAM_REGEX = r".*(instagram.com|instagr.am)/(p|reel|tv|share)/[^\s]+"
 
@@ -131,9 +130,12 @@ def get_instagram_all_data(url):
                 sorted_comments = sorted(raw_comments, key=lambda x: (x.get('like_count', 0), len(x.get('text', ''))), reverse=True)
                 for c in sorted_comments:
                     author = c.get('author', 'anonymous_user')
-                    text = c.get('text', '').strip().replace('\n', ' ')
-                    if text: metadata["comments"].append(f"💬 @{author}: {text}")
-                    if len(metadata["comments"]) >= 10: break
+                    # Python 3.10 safe fix: evaluated before f-string formatting
+                    clean_text = c.get('text', '').strip().replace('\n', ' ')[:50]
+                    if clean_text: 
+                        metadata["comments"].append(f"💬 @{author}: {clean_text}")
+                    if len(metadata["comments"]) >= 10: 
+                        break
             return metadata
         except Exception as e:
             print(f"Metadata Restricted Block: {e}")
